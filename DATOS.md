@@ -32,7 +32,7 @@ Marca con [x] el metodo usado y describe brevemente:
 ### Metodo de recogida:
 
 - [ ] **Programa propio**: Cree un programa para jugar y guardar datos
-- [ ] **Manual**: Jugue partidas y apunte los resultados a mano
+- [X] **Manual**: Jugue partidas y apunte los resultados a mano
 - [ ] **Aplicacion/Web externa**: Use una app y exporte los datos
 - [ ] **Otro**: _________________
 
@@ -42,8 +42,7 @@ Marca con [x] el metodo usado y describe brevemente:
 (Explica aqui como recogiste los datos. Si usaste un programa,
 describe brevemente como funciona. Si fue manual, explica el proceso.)
 
-
-
+Cogimos los datos en una libreta y luego lo pasamos a mano. 
 
 ```
 ---
@@ -70,12 +69,12 @@ Si capturaste datos extra ademas de los basicos, marcalos aqui:
 
 ## Estadisticas del dataset
 
-- **Total de rondas:** _____
-- **Numero de sesiones/partidas:** _____
-- **Contra cuantas personas diferentes:** _____
+- **Total de rondas:** Muchas
+- **Numero de sesiones/partidas:** 200
+- **Contra cuantas personas diferentes:** 3
 
 ### Tipo de IA:
 
 - [ ] **IA Especifica**: Entrenada para ganar a UNA persona concreta
   - Nombre/identificador del oponente: _________________
-- [ ] **IA General**: Entrenada para ganar a cualquier oponente
+- [X] **IA General**: Entrenada para ganar a cualquier oponente
