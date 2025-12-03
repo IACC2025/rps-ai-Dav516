@@ -1,6 +1,6 @@
 # Documentacion de Recogida de Datos
 
-**Alumno:** ___________________
+**Alumno:** David Laborda, David Ultra, Sergio Lainez
 
 ## Formato del CSV
 
