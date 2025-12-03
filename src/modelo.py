@@ -1,68 +1,37 @@
+# src/modelo.py
 """
 RPSAI - Modelo de IA para Piedra, Papel o Tijera
-=================================================
-
-INSTRUCCIONES PARA EL ALUMNO:
------------------------------
-Este archivo contiene la plantilla para tu modelo de IA.
-Debes completar las secciones marcadas con TODO.
-
-El objetivo es crear un modelo que prediga la PROXIMA jugada del oponente
-y responda con la jugada que le gana.
-
-FORMATO DEL CSV (minimo requerido):
------------------------------------
-Tu archivo data/partidas.csv debe tener AL MENOS estas columnas:
-    - numero_ronda: Numero de la ronda (1, 2, 3...)
-    - jugada_j1: Jugada del jugador 1 (piedra/papel/tijera)
-    - jugada_j2: Jugada del jugador 2/oponente (piedra/papel/tijera)
-
-Ejemplo:
-    numero_ronda,jugada_j1,jugada_j2
-    1,piedra,papel
-    2,tijera,piedra
-    3,papel,papel
-
-Si has capturado datos adicionales (tiempo_reaccion, timestamp, etc.),
-puedes usarlos para crear features extra.
-
-EVALUACION:
-- 30% Extraccion de datos (documentado en DATOS.md)
-- 30% Feature Engineering
-- 40% Entrenamiento y funcionamiento del modelo
-
-FLUJO:
-1. Cargar datos del CSV
-2. Crear features (caracteristicas predictivas)
-3. Entrenar modelo(s)
-4. Evaluar y seleccionar el mejor
-5. Usar el modelo para predecir y jugar
+Versión adaptada para el layout:
+  PROJECT_ROOT/
+    data/        <- aqui debe estar el CSV (partidas.csv o cualquier .csv)
+    models/      <- aqui se guardará modelo_entrenado.pkl
+    src/
+      modelo.py  <- este archivo
 """
-
 import os
 import pickle
-import warnings
 from pathlib import Path
 
 import pandas as pd
 import numpy as np
 
-# Descomenta esta linea si te molesta el warning de sklearn sobre feature names:
-# warnings.filterwarnings("ignore", message="X does not have valid feature names")
-
-# Importa aqui los modelos que vayas a usar
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-# TODO: Importa los modelos que necesites (KNN, DecisionTree, RandomForest, etc.)
-# from sklearn.neighbors import KNeighborsClassifier
-# from sklearn.tree import DecisionTreeClassifier
-# from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 
+# -------------------------
+# Rutas base (robustas)
+# -------------------------
+RUTA_PROYECTO = Path(__file__).parent.parent.resolve()   # project root
+DATA_DIR = RUTA_PROYECTO / "data"
+MODELS_DIR = RUTA_PROYECTO / "models"
+# nombre por defecto de salida del modelo
+RUTA_MODELO = MODELS_DIR / "modelo_entrenado.pkl"
 
-# Configuracion de rutas
-RUTA_PROYECTO = Path(__file__).parent.parent
-RUTA_DATOS = RUTA_PROYECTO / "data" / "partidas.csv"
-RUTA_MODELO = RUTA_PROYECTO / "models" / "modelo_entrenado.pkl"
+# posibles nombres de CSV a buscar (en orden)
+POSSIBLE_CSV_NAMES = ["partidas.csv", "mis_partidas_ppt.csv", "mis_partidas.csv"]
 
 # Mapeo de jugadas a numeros (para el modelo)
 JUGADA_A_NUM = {"piedra": 0, "papel": 1, "tijera": 2}
@@ -72,185 +41,177 @@ NUM_A_JUGADA = {0: "piedra", 1: "papel", 2: "tijera"}
 GANA_A = {"piedra": "tijera", "papel": "piedra", "tijera": "papel"}
 PIERDE_CONTRA = {"piedra": "papel", "papel": "tijera", "tijera": "piedra"}
 
+# Parámetros de feature engineering
+LAGS = 3
+WINDOW_FREQ = None  # expanding mean
+
+
+# -------------------------
+# UTIL: encontrar CSV en data/
+# -------------------------
+def encontrar_csv_data(data_dir: Path = None) -> Path:
+    """
+    Busca un CSV válido dentro de data/ y devuelve su Path.
+    Revisa primero nombres conocidos, si no encuentra toma el primer .csv.
+    """
+    if data_dir is None:
+        data_dir = DATA_DIR
+    data_dir = Path(data_dir)
+    if not data_dir.exists():
+        raise FileNotFoundError(f"No existe la carpeta data/ en: {data_dir}")
+
+    # comprobar nombres preferidos
+    for name in POSSIBLE_CSV_NAMES:
+        p = data_dir / name
+        if p.exists():
+            return p
+
+    # si no, coger el primer .csv en la carpeta
+    csvs = sorted(list(data_dir.glob("*.csv")))
+    if csvs:
+        return csvs[0]
+
+    raise FileNotFoundError(f"No se encontró ningún archivo .csv en {data_dir}. Añade tu CSV (ej: partidas.csv).")
+
 
 # =============================================================================
-# PARTE 1: EXTRACCION DE DATOS (30% de la nota)
+# PARTE 1: EXTRACCION DE DATOS
 # =============================================================================
 
 def cargar_datos(ruta_csv: str = None) -> pd.DataFrame:
     """
-    Carga los datos del CSV de partidas.
-
-    TODO: Implementa esta funcion
-    - Usa pandas para leer el CSV
-    - Maneja el caso de que el archivo no exista
-    - Verifica que tenga las columnas necesarias
-
-    Args:
-        ruta_csv: Ruta al archivo CSV (usa RUTA_DATOS por defecto)
-
-    Returns:
-        DataFrame con los datos de las partidas
+    Carga datos desde data/*.csv. Si ruta_csv es None intentará auto-detectar.
     """
     if ruta_csv is None:
-        ruta_csv = RUTA_DATOS
-
-    # TODO: Implementa la carga de datos
-    # Pista: usa pd.read_csv()
-
-    pass  # Elimina esta linea cuando implementes
+        ruta_csv = encontrar_csv_data()
+    ruta_csv = Path(ruta_csv)
+    df = pd.read_csv(ruta_csv, encoding="utf-8")
+    required = {"numero_ronda", "jugada_j1", "jugada_j2"}
+    if not required.issubset(set(df.columns)):
+        raise ValueError(f"El CSV debe contener las columnas: {required}. Columnas encontradas: {list(df.columns)}")
+    df = df.sort_values("numero_ronda").reset_index(drop=True)
+    return df
 
 
 def preparar_datos(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Prepara los datos para el modelo.
-
-    TODO: Implementa esta funcion
-    - Convierte las jugadas de texto a numeros
-    - Crea la columna 'proxima_jugada_j2' (el target a predecir)
-    - Elimina filas con valores nulos
-
-    Args:
-        df: DataFrame con los datos crudos
-
-    Returns:
-        DataFrame preparado para feature engineering
-    """
-    # TODO: Implementa la preparacion de datos
-    # Pistas:
-    # - Usa map() con JUGADA_A_NUM para convertir jugadas a numeros
-    # - Usa shift(-1) para crear la columna de proxima jugada
-    # - Usa dropna() para eliminar filas con NaN
-
-    pass  # Elimina esta linea cuando implementes
+    df = df.copy()
+    df["jugada_j1"] = df["jugada_j1"].astype(str).str.strip().str.lower()
+    df["jugada_j2"] = df["jugada_j2"].astype(str).str.strip().str.lower()
+    df["jugada_j1_num"] = df["jugada_j1"].map(JUGADA_A_NUM)
+    df["jugada_j2_num"] = df["jugada_j2"].map(JUGADA_A_NUM)
+    df["proxima_jugada_j2"] = df["jugada_j2_num"].shift(-1)
+    df = df.dropna(subset=["jugada_j1_num", "jugada_j2_num", "proxima_jugada_j2"])
+    df["proxima_jugada_j2"] = df["proxima_jugada_j2"].astype(int)
+    df["jugada_j1_num"] = df["jugada_j1_num"].astype(int)
+    df["jugada_j2_num"] = df["jugada_j2_num"].astype(int)
+    df = df.reset_index(drop=True)
+    return df
 
 
 # =============================================================================
-# PARTE 2: FEATURE ENGINEERING (30% de la nota)
+# PARTE 2: FEATURE ENGINEERING
 # =============================================================================
 
 def crear_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Crea las features (caracteristicas) para el modelo.
-
-    TODO: Implementa al menos 3 tipos de features diferentes.
-
-    Ideas de features:
-    1. Frecuencia de cada jugada del oponente (j2)
-    2. Ultimas N jugadas (lag features)
-    3. Resultado de la ronda anterior
-    4. Racha actual (victorias/derrotas consecutivas)
-    5. Patron despues de ganar/perder
-    6. Fase del juego (inicio/medio/final)
-
-    Cuantas mas features relevantes crees, mejor podra predecir tu modelo.
-
-    Args:
-        df: DataFrame con datos preparados
-
-    Returns:
-        DataFrame con todas las features creadas
-    """
     df = df.copy()
+    # frecuencias acumuladas
+    for move, code in JUGADA_A_NUM.items():
+        col_name = f"freq_j2_{move}"
+        if WINDOW_FREQ is None:
+            df[col_name] = (df["jugada_j2_num"] == code).expanding().mean()
+        else:
+            df[col_name] = (df["jugada_j2_num"] == code).rolling(window=WINDOW_FREQ, min_periods=1).mean()
+    # lags
+    for lag in range(1, LAGS + 1):
+        df[f"j2_lag_{lag}"] = df["jugada_j2_num"].shift(lag)
+    # resultado anterior (desde j1)
+    def resultado_j1(row):
+        j1 = row["jugada_j1"]
+        j2 = row["jugada_j2"]
+        if j1 == j2:
+            return 0
+        if GANA_A.get(j1) == j2:
+            return 1
+        return -1
+    df["resultado_actual"] = df.apply(resultado_j1, axis=1)
+    df["resultado_anterior"] = df["resultado_actual"].shift(1).fillna(0).astype(int)
+    # j2_result y racha
+    def j2_gano(row):
+        j1 = row["jugada_j1"]
+        j2 = row["jugada_j2"]
+        if j1 == j2:
+            return 0
+        if GANA_A.get(j2) == j1:
+            return 1
+        return -1
+    df["j2_result"] = df.apply(j2_gano, axis=1)
+    racha = []
+    current_sign = None
+    count = 0
+    for val in df["j2_result"].tolist():
+        if current_sign is None or np.sign(val) != current_sign:
+            current_sign = np.sign(val)
+            count = 1
+        else:
+            count += 1
+        racha.append(count)
+    df["j2_racha"] = racha
+    # ronda normalizada
+    max_round = df["numero_ronda"].max() if "numero_ronda" in df.columns else len(df)
+    df["ronda_norm"] = df["numero_ronda"] / max(1, max_round)
+    # lags fill
+    for lag in range(1, LAGS + 1):
+        df[f"j2_lag_{lag}"] = df[f"j2_lag_{lag}"].fillna(-1).astype(int)
+    df = df.dropna().reset_index(drop=True)
+    return df
 
-    # ------------------------------------------
-    # TODO: Feature 1 - Frecuencia de jugadas
-    # ------------------------------------------
-    # Calcula que porcentaje de veces j2 juega cada opcion
-    # Pista: usa expanding().mean() o rolling()
 
-    # ------------------------------------------
-    # TODO: Feature 2 - Lag features (jugadas anteriores)
-    # ------------------------------------------
-    # Crea columnas con las ultimas 1, 2, 3 jugadas
-    # Pista: usa shift(1), shift(2), etc.
-
-    # ------------------------------------------
-    # TODO: Feature 3 - Resultado anterior
-    # ------------------------------------------
-    # Crea una columna con el resultado de la ronda anterior
-    # Esto puede revelar patrones (ej: siempre cambia despues de perder)
-
-    # ------------------------------------------
-    # TODO: Mas features (opcional pero recomendado)
-    # ------------------------------------------
-    # Agrega mas features que creas utiles
-    # Recuerda: mas features relevantes = mejor prediccion
-
-    pass  # Elimina esta linea cuando implementes
-
-
-def seleccionar_features(df: pd.DataFrame) -> tuple:
-    """
-    Selecciona las features para entrenar y el target.
-
-    TODO: Implementa esta funcion
-    - Define que columnas usar como features (X)
-    - Define la columna target (y) - debe ser 'proxima_jugada_j2'
-    - Elimina filas con valores nulos
-
-    Returns:
-        (X, y) - Features y target como arrays/DataFrames
-    """
-    # TODO: Selecciona las columnas de features
-    # feature_cols = ['feature1', 'feature2', ...]
-
-    # TODO: Crea X (features) e y (target)
-    # X = df[feature_cols]
-    # y = df['proxima_jugada_j2']
-
-    pass  # Elimina esta linea cuando implementes
+def seleccionar_features(df: pd.DataFrame):
+    feature_cols = []
+    for move in JUGADA_A_NUM.keys():
+        feature_cols.append(f"freq_j2_{move}")
+    for lag in range(1, LAGS + 1):
+        feature_cols.append(f"j2_lag_{lag}")
+    feature_cols += ["resultado_anterior", "j2_racha", "ronda_norm"]
+    missing = [c for c in feature_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Faltan columnas de features: {missing}")
+    X = df[feature_cols].copy()
+    y = df["proxima_jugada_j2"].copy()
+    return X, y
 
 
 # =============================================================================
-# PARTE 3: ENTRENAMIENTO Y FUNCIONAMIENTO (40% de la nota)
+# PARTE 3: ENTRENAMIENTO / SELECCION
 # =============================================================================
 
-def entrenar_modelo(X, y, test_size: float = 0.2):
-    """
-    Entrena el modelo de prediccion.
+def entrenar_modelo(X, y, test_size: float = 0.2, random_state: int = 42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y)
+    modelos = {
+        "KNN": KNeighborsClassifier(n_neighbors=5),
+        "DecisionTree": DecisionTreeClassifier(max_depth=6, random_state=random_state),
+        "RandomForest": RandomForestClassifier(n_estimators=100, random_state=random_state)
+    }
+    resultados = {}
+    for name, model in modelos.items():
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+        resultados[name] = {"model": model, "accuracy": acc, "report": classification_report(y_test, y_pred, output_dict=True), "confusion": confusion_matrix(y_test, y_pred)}
+        print(f"\nModelo: {name}  Accuracy: {acc:.4f}")
+    best_name = max(resultados.keys(), key=lambda n: resultados[n]["accuracy"])
+    best_model = resultados[best_name]["model"]
+    print(f"\nMejor modelo: {best_name} con accuracy {resultados[best_name]['accuracy']:.4f}")
+    return best_model, resultados
 
-    TODO: Implementa esta funcion
-    - Divide los datos en train/test
-    - Entrena al menos 2 modelos diferentes
-    - Evalua cada modelo y selecciona el mejor
-    - Muestra metricas de evaluacion
 
-    Args:
-        X: Features
-        y: Target (proxima jugada del oponente)
-        test_size: Proporcion de datos para test
-
-    Returns:
-        El mejor modelo entrenado
-    """
-    # TODO: Divide los datos
-    # X_train, X_test, y_train, y_test = train_test_split(...)
-
-    # TODO: Entrena varios modelos
-    # modelos = {
-    #     'KNN': KNeighborsClassifier(n_neighbors=5),
-    #     'DecisionTree': DecisionTreeClassifier(),
-    #     'RandomForest': RandomForestClassifier()
-    # }
-
-    # TODO: Evalua cada modelo
-    # Para cada modelo:
-    #   - Entrena con fit()
-    #   - Predice con predict()
-    #   - Calcula accuracy con accuracy_score()
-    #   - Muestra classification_report()
-
-    # TODO: Selecciona y retorna el mejor modelo
-
-    pass  # Elimina esta linea cuando implementes
-
+# =============================================================================
+# GUARDAR / CARGAR MODELO (asegura que models/ exista)
+# =============================================================================
 
 def guardar_modelo(modelo, ruta: str = None):
-    """Guarda el modelo entrenado en un archivo."""
     if ruta is None:
         ruta = RUTA_MODELO
-
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     with open(ruta, "wb") as f:
         pickle.dump(modelo, f)
@@ -258,133 +219,155 @@ def guardar_modelo(modelo, ruta: str = None):
 
 
 def cargar_modelo(ruta: str = None):
-    """Carga un modelo previamente entrenado."""
     if ruta is None:
         ruta = RUTA_MODELO
-
     if not os.path.exists(ruta):
         raise FileNotFoundError(f"No se encontro el modelo en: {ruta}")
-
     with open(ruta, "rb") as f:
         return pickle.load(f)
 
 
 # =============================================================================
-# PARTE 4: PREDICCION Y JUEGO
+# CLASE JugadorIA (usa el mismo esquema de features)
 # =============================================================================
 
 class JugadorIA:
-    """
-    Clase que encapsula el modelo para jugar.
-
-    TODO: Completa esta clase para que pueda:
-    - Cargar un modelo entrenado
-    - Mantener historial de la partida actual
-    - Predecir la proxima jugada del oponente
-    - Decidir que jugada hacer para ganar
-    """
-
     def __init__(self, ruta_modelo: str = None):
-        """Inicializa el jugador IA."""
         self.modelo = None
-        self.historial = []  # Lista de (jugada_j1, jugada_j2)
-
-        # TODO: Carga el modelo si existe
-        # try:
-        #     self.modelo = cargar_modelo(ruta_modelo)
-        # except FileNotFoundError:
-        #     print("Modelo no encontrado. Entrena primero.")
+        self.historial = []
+        self.feature_cols = []
+        # columnas esperadas
+        for move in JUGADA_A_NUM.keys():
+            self.feature_cols.append(f"freq_j2_{move}")
+        for lag in range(1, LAGS + 1):
+            self.feature_cols.append(f"j2_lag_{lag}")
+        self.feature_cols += ["resultado_anterior", "j2_racha", "ronda_norm"]
+        # cargar modelo si existe
+        if ruta_modelo is None:
+            ruta_modelo = RUTA_MODELO
+        try:
+            self.modelo = cargar_modelo(ruta_modelo)
+            print("Modelo cargado.")
+        except FileNotFoundError:
+            print("No se pudo cargar el modelo (entrena primero).")
 
     def registrar_ronda(self, jugada_j1: str, jugada_j2: str):
-        """
-        Registra una ronda jugada para actualizar el historial.
-
-        Args:
-            jugada_j1: Jugada del jugador 1
-            jugada_j2: Jugada del oponente
-        """
-        self.historial.append((jugada_j1, jugada_j2))
+        self.historial.append((jugada_j1.strip().lower(), jugada_j2.strip().lower()))
 
     def obtener_features_actuales(self) -> np.ndarray:
-        """
-        Genera las features basadas en el historial actual.
+        if len(self.historial) == 0:
+            sample = np.zeros(len(self.feature_cols), dtype=float)
+            idx = len(JUGADA_A_NUM)  # skip freq zeros
+            for lag in range(1, LAGS + 1):
+                sample[idx] = -1
+                idx += 1
+            sample[idx] = 0; idx += 1
+            sample[idx] = 0; idx += 1
+            sample[idx] = 0.0
+            return sample
+        temp = pd.DataFrame(self.historial, columns=["jugada_j1", "jugada_j2"])
+        temp["numero_ronda"] = np.arange(1, len(temp)+1)
+        temp["jugada_j2_num"] = temp["jugada_j2"].map(JUGADA_A_NUM)
+        feats = {}
+        for move, code in JUGADA_A_NUM.items():
+            if WINDOW_FREQ is None:
+                vals = (temp["jugada_j2_num"] == code).expanding().mean()
+            else:
+                vals = (temp["jugada_j2_num"] == code).rolling(window=WINDOW_FREQ, min_periods=1).mean()
+            feats[f"freq_j2_{move}"] = vals.iloc[-1]
+        for lag in range(1, LAGS + 1):
+            val = temp["jugada_j2_num"].shift(lag).iloc[-1] if len(temp) - lag - 0 >= 0 else -1
+            feats[f"j2_lag_{lag}"] = -1 if pd.isna(val) else int(val)
+        def resultado_j1_row(j1, j2):
+            if j1 == j2:
+                return 0
+            if GANA_A.get(j1) == j2:
+                return 1
+            return -1
+        if len(temp) >= 2:
+            prev_row = temp.iloc[-2]
+            res_ant = resultado_j1_row(prev_row["jugada_j1"], prev_row["jugada_j2"])
+        else:
+            res_ant = 0
+        feats["resultado_anterior"] = int(res_ant)
+        # racha simple
+        racha = 0
+        sign_prev = None
+        for _, row in temp.iterrows():
+            val = row["jugada_j2"]
+            j1 = row["jugada_j1"]
+            if j1 == val:
+                sign = 0
+            elif GANA_A.get(val) == j1:
+                sign = 1
+            else:
+                sign = -1
+            if sign_prev is None or sign != sign_prev:
+                count = 1
+            else:
+                count += 1
+            sign_prev = sign
+            racha = count
+        feats["j2_racha"] = int(racha)
+        feats["ronda_norm"] = temp["numero_ronda"].max() / max(1, temp["numero_ronda"].max())
+        feature_vector = [feats.get(c, 0) for c in self.feature_cols]
+        return np.array(feature_vector, dtype=float)
 
-        TODO: Implementa esta funcion
-        - Usa el historial para calcular las mismas features que usaste en entrenamiento
-        - Retorna un array con las features
-
-        Returns:
-            Array con las features para la prediccion
-        """
-        # TODO: Calcula las features basadas en self.historial
-        # Deben ser LAS MISMAS features que usaste para entrenar
-
-        pass  # Elimina esta linea cuando implementes
+    import pandas as pd
+    import numpy as np
 
     def predecir_jugada_oponente(self) -> str:
-        """
-        Predice la proxima jugada del oponente.
-
-        TODO: Implementa esta funcion
-        - Usa obtener_features_actuales() para obtener las features
-        - Usa el modelo para predecir
-        - Convierte la prediccion numerica a texto
-
-        Returns:
-            Jugada predicha del oponente (piedra/papel/tijera)
-        """
         if self.modelo is None:
-            # Si no hay modelo, juega aleatorio
-            return np.random.choice(["piedra", "papel", "tijera"])
+            return np.random.choice(list(JUGADA_A_NUM.keys()))
 
-        # TODO: Implementa la prediccion
-        # features = self.obtener_features_actuales()
-        # prediccion = self.modelo.predict([features])[0]
-        # return NUM_A_JUGADA[prediccion]
+        # obtener features como array (1, n_features)
+        features = self.obtener_features_actuales().reshape(1, -1)
 
-        pass  # Elimina esta linea cuando implementes
+        # Comprobar dimensión y convertir a DataFrame con nombres de columna
+        if features.shape[1] != len(self.feature_cols):
+            raise ValueError(
+                f"Dimensión features ({features.shape[1]}) no coincide con feature_cols ({len(self.feature_cols)})."
+            )
+
+        df_features = pd.DataFrame(features, columns=self.feature_cols)
+
+        try:
+            pred = self.modelo.predict(df_features)[0]
+            return NUM_A_JUGADA.get(int(pred), np.random.choice(list(JUGADA_A_NUM.keys())))
+        except Exception as e:
+            print("Error prediccion:", e)
+            return np.random.choice(list(JUGADA_A_NUM.keys()))
 
     def decidir_jugada(self) -> str:
-        """
-        Decide que jugada hacer para ganar al oponente.
-
-        Returns:
-            La jugada que gana a la prediccion del oponente
-        """
-        prediccion_oponente = self.predecir_jugada_oponente()
-
-        if prediccion_oponente is None:
-            return np.random.choice(["piedra", "papel", "tijera"])
-
-        # Juega lo que le gana a la prediccion
-        return PIERDE_CONTRA[prediccion_oponente]
+        pred = self.predecir_jugada_oponente()
+        return PIERDE_CONTRA.get(pred, np.random.choice(list(JUGADA_A_NUM.keys())))
 
 
 # =============================================================================
-# FUNCION PRINCIPAL
+# MAIN: flujo de entrenamiento
 # =============================================================================
 
 def main():
-    """
-    Funcion principal para entrenar el modelo.
-
-    Ejecuta: python src/modelo.py
-    """
-    print("="*50)
-    print("   RPSAI - Entrenamiento del Modelo")
-    print("="*50)
-
-    # TODO: Implementa el flujo completo:
-    # 1. Cargar datos
-    # 2. Preparar datos
-    # 3. Crear features
-    # 4. Seleccionar features
-    # 5. Entrenar modelo
-    # 6. Guardar modelo
-
-    print("\n[!] Implementa las funciones marcadas con TODO")
-    print("[!] Luego ejecuta este script para entrenar tu modelo")
-
+    print("="*60)
+    print("RPSAI - Entrenamiento del Modelo")
+    print("="*60)
+    try:
+        df_raw = cargar_datos()
+    except Exception as e:
+        print("Error cargando datos:", e)
+        return
+    df_prepared = preparar_datos(df_raw)
+    print(f"Datos preparados: {len(df_prepared)} filas")
+    df_feat = crear_features(df_prepared)
+    print(f"Features: {df_feat.shape[1]} cols  {df_feat.shape[0]} filas")
+    X, y = seleccionar_features(df_feat)
+    best_model, resultados = entrenar_modelo(X, y)
+    # asegurar carpeta models
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    guardar_modelo(best_model, ruta=RUTA_MODELO)
+    print("\nEntrenamiento completado. Modelos evaluados:")
+    for name, info in resultados.items():
+        print(f" - {name}: accuracy={info['accuracy']:.4f}")
 
 if __name__ == "__main__":
     main()

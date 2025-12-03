@@ -6,7 +6,7 @@ Este script evalua el rendimiento de tu modelo de IA
 jugando partidas contra un humano y calculando el winrate.
 
 Uso:
-    python src/evaluador.py
+python src/evaluador.py
 
 El evaluador:
 1. Carga tu modelo entrenado
